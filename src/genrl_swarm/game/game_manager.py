@@ -137,17 +137,15 @@ class GameManager(abc.ABC): #TODO: Make this use enum
         world_state_pruners, game_tree_brancher = self.aggregate_game_state_methods()
         self.state._init_game(self.data_manager.get_round_data(), agent_keys=self.agent_ids, world_state_pruners=world_state_pruners, game_tree_brancher=game_tree_brancher) # Prepare game trees within the game state for the initial round's batch of data
         # Loop through rounds until end of the game is hit
-        while not self.end_of_game():
-            try:
+        try:
+            while not self.end_of_game():
                 get_logger().info(f"Starting round: {self.state.round}/{getattr(self, 'max_round', None)}.")
                 self.run_game_round() # Loops through stages until end of round signal is received
-            except:
-                get_logger().exception("Exception occurred during game run.", stack_info=True)
-                break
-
-        self._hook_after_game()
-        self.trainer.cleanup()        
-
+        except:
+            get_logger().exception("Exception occurred during game run.", stack_info=True)
+        finally:
+            self._hook_after_game()
+            self.trainer.cleanup()
 
 class DefaultGameManagerMixin:
     """
