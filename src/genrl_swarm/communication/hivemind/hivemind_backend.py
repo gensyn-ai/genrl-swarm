@@ -56,20 +56,20 @@ class HivemindBackend(Communication):
         self,
         initial_peers: List[str] | None = None,
         timeout: int = 600,
-        disable_caching: bool = False,  
-        beam_size: int = 1000, 
+        disable_caching: bool = False,
+        beam_size: int = 1000,
         **kwargs,
     ):
         self.world_size = int(os.environ.get("HIVEMIND_WORLD_SIZE", 1))
         self.timeout = timeout
         self.bootstrap = HivemindRendezvouz.is_bootstrap()
-        self.beam_size = beam_size 
+        self.beam_size = beam_size
         self.dht = None
-        
+
         if disable_caching:
             kwargs['cache_locally'] = False
             kwargs['cache_on_store'] = False
-            
+
         if self.bootstrap:
             self.dht = DHT(
                 start=True,
@@ -89,7 +89,7 @@ class HivemindBackend(Communication):
             )
         self.step_ = 0
 
-    def all_gather_object(self, obj: Any) -> Dict[str| int, Any]:
+    def all_gather_object(self, obj: Any) -> Dict[str | int, Any]:
         key = str(self.step_)
         try:
             _ = self.dht.get_visible_maddrs(latest=True)
@@ -127,4 +127,4 @@ class HivemindBackend(Communication):
 
     def get_id(self):
         return str(self.dht.peer_id)
-    
+
