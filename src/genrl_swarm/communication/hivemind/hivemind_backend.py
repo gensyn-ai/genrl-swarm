@@ -69,27 +69,102 @@ class HivemindBackend(Communication):
         if disable_caching:
             kwargs['cache_locally'] = False
             kwargs['cache_on_store'] = False
-            
-        if self.bootstrap:
-            self.dht = DHT(
-                start=True,
-                host_maddrs=[f"/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/udp/0/quic"],
-                initial_peers=initial_peers,
-                **kwargs,
-            )
-            dht_maddrs = self.dht.get_visible_maddrs(latest=True)
-            HivemindRendezvouz.set_initial_peers(dht_maddrs)
-        else:
-            initial_peers = initial_peers or HivemindRendezvouz.get_initial_peers()
-            self.dht = DHT(
-                start=True,
-                host_maddrs=[f"/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/udp/0/quic"],
-                initial_peers=initial_peers,
-                **kwargs,
-            )
+        
+        # Multiple configuration strategies, starting from the safest
+        dht_configs = [
+            # Config 1: Local loopback address (safest)
+            {
+                "host_maddrs": ["/ip4/127.0.0.1/tcp/0"]
+            },
+            # Config 2: Let system auto-select address
+            {},
+            # Config 3: Local loopback, disable await_ready
+            {
+                "host_maddrs": ["/ip4/127.0.0.1/tcp/0"],
+                "await_ready": False
+            },
+            # Config 4: Listen on all network interfaces
+            {
+                "host_maddrs": ["/ip4/0.0.0.0/tcp/0"]
+            },
+            # Config 5: Original configuration (TCP + UDP)
+            {
+                "host_maddrs": ["/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/udp/0/quic"],
+                "await_ready": False
+            }
+        ]
+        
+        last_error = None
+        
+        for i, base_config in enumerate(dht_configs):
+            try:
+                # Only keep known safe parameters, filter out potentially incompatible ones
+                safe_kwargs = {}
+                known_safe_params = {
+                    'cache_locally', 'cache_on_store', 'identity', 'host_maddrs',
+                    'announce_maddrs', 'use_ipfs', 'record_validators', 'protocol_version'
+                }
+                
+                for k, v in kwargs.items():
+                    if k in known_safe_params:
+                        safe_kwargs[k] = v
+                
+                # Merge configurations
+                final_config = {**safe_kwargs, **base_config}
+                
+                if self.bootstrap:
+                    self.dht = DHT(
+                        start=True,
+                        initial_peers=initial_peers or [],
+                        **final_config,
+                    )
+                    
+                    time.sleep(2)  # Wait for bootstrap node to be ready
+                    
+                    try:
+                        dht_maddrs = self.dht.get_visible_maddrs(latest=True)
+                        HivemindRendezvouz.set_initial_peers(dht_maddrs)
+                    except Exception:
+                        pass  # Continue even if getting addresses fails
+                    
+                else:
+                    initial_peers = initial_peers or HivemindRendezvouz.get_initial_peers()
+                    
+                    self.dht = DHT(
+                        start=True,
+                        initial_peers=initial_peers,
+                        **final_config,
+                    )
+                    
+                    time.sleep(1)  # Wait for connection to establish
+                
+                break  # Exit on success
+                
+            except Exception as e:
+                last_error = e
+                
+                # Clean up failed DHT instance
+                if self.dht:
+                    try:
+                        self.dht.shutdown()
+                    except:
+                        pass
+                    finally:
+                        self.dht = None
+                
+                # If not the last config, continue trying
+                if i < len(dht_configs) - 1:
+                    time.sleep(1)
+                    continue
+        
+        # If all configurations failed
+        if self.dht is None:
+            raise RuntimeError(f"All DHT configurations failed. Last error: {last_error}")
+        
         self.step_ = 0
 
-    def all_gather_object(self, obj: Any) -> Dict[str| int, Any]:
+    def all_gather_object(self, obj: Any) -> Dict[str | int, Any]:
+        """Collect objects from all nodes"""
         key = str(self.step_)
         try:
             _ = self.dht.get_visible_maddrs(latest=True)
@@ -123,6 +198,6 @@ class HivemindBackend(Communication):
         except (BlockingIOError, EOFError) as e:
             return {str(self.dht.peer_id): obj}
 
-    def get_id(self):
+    def get_id(self) -> str:
+        """Get node ID"""
         return str(self.dht.peer_id)
-    
