@@ -94,14 +94,16 @@ class HivemindBackend(Communication):
         try:
             _ = self.dht.get_visible_maddrs(latest=True)
             obj_bytes = to_bytes(obj)
-            self.dht.store(
+            store_future = self.dht.store(
                 key,
                 subkey=str(self.dht.peer_id),
                 value=obj_bytes,
                 expiration_time=get_dht_time() + self.timeout,
-                beam_size=self.beam_size,  
+                beam_size=self.beam_size,
+                return_future=True,
             )
-            
+            store_future.result(timeout=self.timeout)
+
             time.sleep(1)
             t_ = time.monotonic()
             while True:
